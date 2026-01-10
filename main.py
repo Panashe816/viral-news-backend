@@ -1,78 +1,30 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from models import Article
-from datetime import datetime
+# main.py
 import os
+from fastapi import FastAPI
+from database import engine
+import models
+from routers import articles
 
+# Create DB tables if they don't exist
+models.Base.metadata.create_all(bind=engine)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+app = FastAPI(
+    title="Viral News API",
+    description="API for the Viral AI News Mobile App",
+    version="1.0.0"
+)
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
+# Include routers
+app.include_router(articles.router)
 
-app = FastAPI(title="Viral News API", version="1.0.0")
-
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-
-# -------------------------
-# HOME PAGE
-# -------------------------
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    db = SessionLocal()
-    articles = (
-        db.query(Article)
-        .filter(Article.is_published == True)
-        .order_by(Article.published_at.desc())
-        .limit(20)
-        .all()
-    )
-    db.close()
-    return templates.TemplateResponse(
-        "index.html",
-        {"request": request, "articles": articles}
-    )
-
-
-# -------------------------
-# ARTICLE PAGE
-# -------------------------
-@app.get("/news/{slug}", response_class=HTMLResponse)
-def article_page(slug: str, request: Request):
-    db = SessionLocal()
-    article = db.query(Article).filter(Article.slug == slug).first()
-    db.close()
-
-    if not article:
-        return HTMLResponse("Article not found", status_code=404)
-
-    return templates.TemplateResponse(
-        "article.html",
-        {"request": request, "article": article}
-    )
-
-
-# -------------------------
-# CATEGORY PAGE
-# -------------------------
-@app.get("/category/{category}", response_class=HTMLResponse)
-def category_page(category: str, request: Request):
-    db = SessionLocal()
-    articles = (
-        db.query(Article)
-        .filter(Article.category == category, Article.is_published == True)
-        .order_by(Article.published_at.desc())
-        .all()
-    )
-    db.close()
-
-    return templates.TemplateResponse(
-        "category.html",
-        {"request": request, "articles": articles, "category": category}
-    )
+@app.get("/")
+def read_root():
+    return {
+        "message": "Welcome to Viral News API!",
+        "endpoints": {
+            "all_articles": "/articles/",
+            "article_by_id": "/articles/{id}",
+            "articles_by_category": "/articles/category/{category_name}",
+            "categories_list": "/articles/categories/list"
+        }
+    }
