@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ category }} News</title>
+</head>
+<body>
+
+<h1>{{ category }}</h1>
+
+{% for article in articles %}
+  <a href="/news/{{ article.slug }}">
+    <h3>{{ article.title }}</h3>
+  </a>
+{% endfor %}
+
+</body>
+</html>

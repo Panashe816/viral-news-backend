@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Viral News</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<h1>Latest News</h1>
+
+{% for article in articles %}
+  <div class="card">
+    <h2>
+      <a href="/news/{{ article.slug }}">{{ article.title }}</a>
+    </h2>
+    <p>{{ article.published_at.strftime('%Y-%m-%d') }}</p>
+  </div>
+{% endfor %}
+
+</body>
+</html>
