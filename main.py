@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from models import Article
 from datetime import datetime
 
-DATABASE_URL = "postgresql://universalnews_user:V5niNC00UBFDXwyOvFJhCLjiYHFXZi8b@dpg-d4a28v7diees73cr0bm0-a.virginia-postgres.render.com/universalnewss"
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
