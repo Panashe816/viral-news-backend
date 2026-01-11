@@ -1,11 +1,15 @@
-# main.py
 import os
+from datetime import datetime
+
 from fastapi import FastAPI
-from database import engine
+from fastapi_utils.tasks import repeat_every
+
+from database import engine, get_db
 import models
+from models import Article
 from routers import articles
 
-# Create DB tables if they don't exist
+# Create DB tables
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -14,7 +18,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Include routers
+# Routers
 app.include_router(articles.router)
 
 @app.get("/")
@@ -28,3 +32,19 @@ def read_root():
             "categories_list": "/articles/categories/list"
         }
     }
+
+# 🔁 AUTO-PUBLISH LOGIC (NO CRON)
+@app.on_event("startup")
+@repeat_every(seconds=3600)  # every hour
+def publish_articles():
+    db = next(get_db())
+    unpublished = db.query(Article).filter(
+        Article.published == False
+    ).all()
+
+    for article in unpublished:
+        article.published = True
+        article.published_at = datetime.utcnow()
+
+    db.commit()
+    print(f"[AUTO-PUBLISH] Published {len(unpublished)} articles")
