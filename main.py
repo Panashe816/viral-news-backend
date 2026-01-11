@@ -7,7 +7,7 @@ import models
 from models import Article
 from routers import articles
 
-# Create DB tables (SAFE – does NOT delete data)
+# Create DB tables if missing columns exist (safe, won't delete data)
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -31,7 +31,7 @@ def read_root():
         }
     }
 
-# 🔁 BACKGROUND AUTO-PUBLISH LOOP
+# 🔁 AUTO-PUBLISH LOOP
 @app.on_event("startup")
 async def start_publisher():
     asyncio.create_task(publish_loop())
@@ -40,13 +40,13 @@ async def publish_loop():
     while True:
         try:
             db = next(get_db())
-
-            # ✅ FIX: use published_at instead of published boolean
+            # get unpublished articles
             unpublished = db.query(Article).filter(
-                Article.published_at.is_(None)
+                Article.published == False
             ).all()
 
             for article in unpublished:
+                article.published = True
                 article.published_at = datetime.utcnow()
 
             db.commit()
