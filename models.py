@@ -13,8 +13,7 @@ class Article(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # ✅ REQUIRED FOR AUTO-PUBLISH
-    published = Column(Boolean, default=False)
+    # ✅ USE THIS FOR PUBLISH STATUS (NULL = unpublished)
     published_at = Column(DateTime, nullable=True)
 
 
