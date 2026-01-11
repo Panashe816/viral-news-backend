@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # ✅ CORS import
 from database import engine, get_db
 import models
 from models import Article
@@ -14,6 +15,20 @@ app = FastAPI(
     title="Viral News API",
     description="API for the Viral AI News Mobile App",
     version="1.0.0"
+)
+
+# 🔹 CORS configuration
+origins = [
+    "https://viralnewsalert.com",  # your frontend domain
+    "http://localhost:5500",       # optional: local testing
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,      # ✅ domains allowed
+    allow_credentials=True,
+    allow_methods=["*"],        # GET, POST, PUT, DELETE…
+    allow_headers=["*"]         # all headers
 )
 
 # Routers
