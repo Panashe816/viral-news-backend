@@ -2,7 +2,6 @@ from sqlalchemy import Column, Integer, Text, DateTime, Boolean
 from database import Base
 from datetime import datetime
 
-
 class Article(Base):
     __tablename__ = "articles"
 
@@ -10,16 +9,15 @@ class Article(Base):
     title = Column(Text, nullable=False)
     category = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
-    image_url = Column(Text)
-    country = Column(Text)
-    meta_data = Column(Text)  # renamed from `metadata` to avoid reserved word
-    source_url = Column(Text)
-    fetched_at = Column(DateTime)
-    used = Column(Boolean)
-    is_trending = Column(Boolean)
-    is_latest = Column(Boolean)
-    is_breaking = Column(Boolean)
-    is_top_headline = Column(Boolean)
+    image_url = Column(Text, nullable=True)
+    country = Column(Text, nullable=True)
+    source_url = Column(Text, nullable=True)
+    fetched_at = Column(DateTime, nullable=True)
+    used = Column(Boolean, default=False)
+    is_trending = Column(Boolean, default=False)
+    is_latest = Column(Boolean, default=False)
+    is_breaking = Column(Boolean, default=False)
+    is_top_headline = Column(Boolean, default=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -34,8 +32,8 @@ class Headline(Base):
     id = Column(Integer, primary_key=True, index=True)
     headline = Column(Text, nullable=False)
     category = Column(Text, nullable=False)
-    source = Column(Text)
-    url = Column(Text)
-    published_at = Column(DateTime)
+    source = Column(Text, nullable=True)
+    url = Column(Text, nullable=True)
+    published_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     generated = Column(Boolean, default=False)
