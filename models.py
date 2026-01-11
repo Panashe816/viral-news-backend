@@ -10,10 +10,21 @@ class Article(Base):
     title = Column(Text, nullable=False)
     category = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
+    image_url = Column(Text)
+    country = Column(Text)
+    metadata = Column(Text)
+    source_url = Column(Text)
+    fetched_at = Column(DateTime)
+    used = Column(Boolean)
+    is_trending = Column(Boolean)
+    is_latest = Column(Boolean)
+    is_breaking = Column(Boolean)
+    is_top_headline = Column(Boolean)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # ✅ USE THIS FOR PUBLISH STATUS (NULL = unpublished)
+    # ✅ REQUIRED FOR AUTO-PUBLISH
+    published = Column(Boolean, default=False)
     published_at = Column(DateTime, nullable=True)
 
 
