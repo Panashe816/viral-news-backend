@@ -1,9 +1,7 @@
-import os
+import asyncio
 from datetime import datetime
 
 from fastapi import FastAPI
-from fastapi_utils.tasks import repeat_every
-
 from database import engine, get_db
 import models
 from models import Article
@@ -33,18 +31,28 @@ def read_root():
         }
     }
 
-# 🔁 AUTO-PUBLISH LOGIC (NO CRON)
+# 🔁 BACKGROUND AUTO-PUBLISH LOOP
 @app.on_event("startup")
-@repeat_every(seconds=3600)  # every hour
-def publish_articles():
-    db = next(get_db())
-    unpublished = db.query(Article).filter(
-        Article.published == False
-    ).all()
+async def start_publisher():
+    asyncio.create_task(publish_loop())
 
-    for article in unpublished:
-        article.published = True
-        article.published_at = datetime.utcnow()
+async def publish_loop():
+    while True:
+        try:
+            db = next(get_db())
+            unpublished = db.query(Article).filter(
+                Article.published == False
+            ).all()
 
-    db.commit()
-    print(f"[AUTO-PUBLISH] Published {len(unpublished)} articles")
+            for article in unpublished:
+                article.published = True
+                article.published_at = datetime.utcnow()
+
+            db.commit()
+            print(f"[AUTO-PUBLISH] Published {len(unpublished)} articles")
+
+        except Exception as e:
+            print("[AUTO-PUBLISH ERROR]", e)
+
+        # ⏱ wait 1 hour
+        await asyncio.sleep(3600)
