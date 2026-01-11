@@ -12,7 +12,7 @@ class Article(Base):
     content = Column(Text, nullable=False)
     image_url = Column(Text)
     country = Column(Text)
-    metadata = Column(Text)
+    meta_data = Column(Text)  # renamed from `metadata` to avoid reserved word
     source_url = Column(Text)
     fetched_at = Column(DateTime)
     used = Column(Boolean)
