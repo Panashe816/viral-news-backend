@@ -7,7 +7,7 @@ import models
 from models import Article
 from routers import articles
 
-# Create DB tables
+# Create DB tables (SAFE – does NOT delete data)
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -40,12 +40,13 @@ async def publish_loop():
     while True:
         try:
             db = next(get_db())
+
+            # ✅ FIX: use published_at instead of published boolean
             unpublished = db.query(Article).filter(
-                Article.published == False
+                Article.published_at.is_(None)
             ).all()
 
             for article in unpublished:
-                article.published = True
                 article.published_at = datetime.utcnow()
 
             db.commit()
