@@ -1,28 +1,27 @@
 import asyncio
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 
 from database import engine, get_db
 import models
 from models import Article
 from routers import articles
 
-# Create DB tables safely
+# Create DB tables safely (no data loss)
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Viral News API",
-    description="API for the Viral News platform",
+    description="API backend for Viral News (JSON only)",
     version="1.0.0"
 )
 
-# 🔹 CORS
+# 🔹 CORS configuration
 origins = [
-    "https://viralnewsalert.com",
-    "http://localhost:5500"
+    "https://viralnewsalert.com",  # GitHub Pages frontend
+    "http://localhost:5500",       # local testing
 ]
 
 app.add_middleware(
@@ -30,73 +29,23 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
-# Routers
+# 🔹 Include article API router (JSON endpoints)
 app.include_router(articles.router)
 
+# 🔹 Root endpoint (health check)
 @app.get("/")
 def read_root():
     return {
-        "message": "Welcome to Viral News API",
+        "message": "Viral News API is running",
         "endpoints": {
-            "articles": "/articles/",
-            "article": "/articles/{id}"
+            "all_articles": "/articles/",
+            "article_by_id": "/articles/{id}",
+            "categories": "/articles/categories/list"
         }
     }
-
-# 📰 FULL ARTICLE PAGE (OPTION A)
-@app.get("/articles/{article_id}", response_class=HTMLResponse)
-def read_article(article_id: int):
-    db = next(get_db())
-
-    article = db.query(Article).filter(
-        Article.id == article_id,
-        Article.published == True
-    ).first()
-
-    if not article or not article.title:
-        raise HTTPException(status_code=404, detail="Article not found")
-
-    image_html = ""
-    if article.image_url:
-        image_html = f'<img src="{article.image_url}" />'
-
-    return f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>{article.title}</title>
-        <meta name="description" content="{article.title}">
-        <style>
-            body {{
-                font-family: Arial, sans-serif;
-                max-width: 900px;
-                margin: auto;
-                padding: 20px;
-                line-height: 1.7;
-            }}
-            img {{
-                max-width: 100%;
-                border-radius: 8px;
-                margin: 15px 0;
-            }}
-            h1 {{
-                font-size: 28px;
-            }}
-        </style>
-    </head>
-    <body>
-
-        <h1>{article.title}</h1>
-        {image_html}
-        {article.content}
-
-    </body>
-    </html>
-    """
 
 # 🔁 AUTO-PUBLISH LOOP
 @app.on_event("startup")
@@ -107,6 +56,7 @@ async def publish_loop():
     while True:
         try:
             db = next(get_db())
+
             unpublished = db.query(Article).filter(
                 Article.published == False
             ).all()
@@ -121,4 +71,5 @@ async def publish_loop():
         except Exception as e:
             print("[AUTO-PUBLISH ERROR]", e)
 
+        # ⏱ run every 1 hour
         await asyncio.sleep(3600)
