@@ -2,6 +2,10 @@ from sqlalchemy import Column, Integer, Text, DateTime, Boolean
 from database import Base
 from datetime import datetime
 
+
+# =======================
+# MAIN ARTICLES TABLE
+# =======================
 class Article(Base):
     __tablename__ = "articles"
 
@@ -26,6 +30,9 @@ class Article(Base):
     published_at = Column(DateTime, nullable=True)
 
 
+# =======================
+# RAW HEADLINES TABLE
+# =======================
 class Headline(Base):
     __tablename__ = "headlines"
 
@@ -37,3 +44,30 @@ class Headline(Base):
     published_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     generated = Column(Boolean, default=False)
+
+
+# =======================
+# HIGHLIGHTED ARTICLES
+# (breaking / trending / top headlines)
+# =======================
+class HighlightedArticle(Base):
+    __tablename__ = "highlighted_articles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    headline_id = Column(Integer, nullable=False)
+
+    title = Column(Text, nullable=False)
+    summary = Column(Text, nullable=True)
+    content = Column(Text, nullable=False)
+
+    url = Column(Text, nullable=True)
+    source = Column(Text, nullable=True)
+    image_url = Column(Text, nullable=True)
+
+    category = Column(Text, nullable=False)
+
+    meta_title = Column(Text, nullable=True)
+    meta_description = Column(Text, nullable=True)
+
+    published_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
