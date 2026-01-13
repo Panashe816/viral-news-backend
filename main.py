@@ -1,12 +1,13 @@
 import asyncio
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 from database import engine, get_db
 import models
-from models import Article
+from models import Article, HighlightedArticle
 from routers import articles
 
 # Create DB tables safely (no data loss)
@@ -20,8 +21,8 @@ app = FastAPI(
 
 # 🔹 CORS configuration
 origins = [
-    "https://viralnewsalert.com",  # GitHub Pages frontend
-    "http://localhost:5500",       # local testing
+    "https://viralnewsalert.com",
+    "http://localhost:5500",
 ]
 
 app.add_middleware(
@@ -32,10 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔹 Include article API router (JSON endpoints)
+# 🔹 Include article API router
 app.include_router(articles.router)
 
-# 🔹 Root endpoint (health check)
+# 🔹 Root endpoint
 @app.get("/")
 def read_root():
     return {
@@ -43,8 +44,48 @@ def read_root():
         "endpoints": {
             "all_articles": "/articles/",
             "article_by_id": "/articles/{id}",
-            "categories": "/articles/categories/list"
+            "categories": "/articles/categories/list",
+            "homepage": "/homepage"
         }
+    }
+
+# 🔹 HOMEPAGE DATA ENDPOINT (NO LIMITS — frontend controls display)
+@app.get("/homepage")
+def homepage(db: Session = Depends(get_db)):
+    trending = (
+        db.query(HighlightedArticle)
+        .filter(HighlightedArticle.type == "trending")
+        .order_by(HighlightedArticle.published_at.desc())
+        .all()
+    )
+
+    breaking = (
+        db.query(HighlightedArticle)
+        .filter(HighlightedArticle.type == "breaking")
+        .order_by(HighlightedArticle.published_at.desc())
+        .all()
+    )
+
+    top_headlines = (
+        db.query(HighlightedArticle)
+        .filter(HighlightedArticle.type == "top")
+        .order_by(HighlightedArticle.published_at.desc())
+        .all()
+    )
+
+    latest = (
+        db.query(Article)
+        .filter(Article.published == True)
+        .order_by(Article.published_at.desc())
+        .limit(50)  # safe cap for performance
+        .all()
+    )
+
+    return {
+        "trending": trending,
+        "breaking": breaking,
+        "top_headlines": top_headlines,
+        "latest": latest
     }
 
 # 🔁 AUTO-PUBLISH LOOP
@@ -71,5 +112,4 @@ async def publish_loop():
         except Exception as e:
             print("[AUTO-PUBLISH ERROR]", e)
 
-        # ⏱ run every 1 hour
         await asyncio.sleep(3600)
