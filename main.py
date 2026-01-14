@@ -1,5 +1,8 @@
+# =========================
+# FILE: main.py
+# =========================
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from database import engine, get_db
 import models
-from models import Article, HighlightedArticle
 from routers import articles
 
 # Create DB tables safely (no data loss)
@@ -16,7 +18,7 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Viral News API",
     description="API backend for Viral News (JSON only)",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # 🔹 CORS configuration
@@ -33,7 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔹 Include article API router
+# 🔹 Include your existing article API router
 app.include_router(articles.router)
 
 # 🔹 Root endpoint
@@ -42,53 +44,69 @@ def read_root():
     return {
         "message": "Viral News API is running",
         "endpoints": {
-            "all_articles": "/articles/",
+            "homepage": "/homepage",
+            "highlighted_articles": "/articles/",
             "article_by_id": "/articles/{id}",
-            "categories": "/articles/categories/list",
-            "homepage": "/homepage"
-        }
+            "categories": "/articles/categories/list"
+        },
+        "note": "Current architecture uses highlighted_articles as the ONLY feed source for homepage."
     }
 
-# 🔹 HOMEPAGE DATA ENDPOINT (NO LIMITS — frontend controls display)
+# =========================================================
+# HOMEPAGE DATA ENDPOINT
+# - Uses ONLY highlighted_articles (generated content)
+# - Returns all categories with NO limits (frontend controls)
+# - Also returns a flat list 'all' sorted newest->oldest
+# =========================================================
 @app.get("/homepage")
 def homepage(db: Session = Depends(get_db)):
-    trending = (
-        db.query(HighlightedArticle)
-        .filter(HighlightedArticle.type == "trending")
-        .order_by(HighlightedArticle.published_at.desc())
+    # Category order must match scraper2/generator2
+    order = [
+        "breaking",
+        "trending",
+        "top headlines",
+        "General News",
+        "World News",
+        "Politics",
+        "Technology",
+        "Sports",
+        "Health & Fitness",
+        "Entertainment",
+    ]
+
+    # Fetch all highlighted articles once (fast + consistent)
+    all_items = (
+        db.query(models.HighlightedArticle)
+        .order_by(
+            models.HighlightedArticle.published_at.desc().nullslast(),
+            models.HighlightedArticle.created_at.desc()
+        )
         .all()
     )
 
-    breaking = (
-        db.query(HighlightedArticle)
-        .filter(HighlightedArticle.type == "breaking")
-        .order_by(HighlightedArticle.published_at.desc())
-        .all()
-    )
-
-    top_headlines = (
-        db.query(HighlightedArticle)
-        .filter(HighlightedArticle.type == "top")
-        .order_by(HighlightedArticle.published_at.desc())
-        .all()
-    )
-
-    latest = (
-        db.query(Article)
-        .filter(Article.published == True)
-        .order_by(Article.published_at.desc())
-        .limit(50)  # safe cap for performance
-        .all()
-    )
+    # Group by category
+    grouped = {k: [] for k in order}
+    for a in all_items:
+        cat = (a.category or "").strip()
+        if cat in grouped:
+            grouped[cat].append(a)
+        else:
+            grouped.setdefault("Other", []).append(a)
 
     return {
-        "trending": trending,
-        "breaking": breaking,
-        "top_headlines": top_headlines,
-        "latest": latest
+        "order": order,
+        "categories": grouped,
+        "all": all_items
     }
 
-# 🔁 AUTO-PUBLISH LOOP
+# =========================================================
+# AUTO-PUBLISH LOOP
+# Old system published from "articles" table.
+# Current architecture uses highlighted_articles directly,
+# so auto-publish is no longer needed.
+# We keep a lightweight loop so deployment expectations
+# don't break, but it does nothing.
+# =========================================================
 @app.on_event("startup")
 async def start_publisher():
     asyncio.create_task(publish_loop())
@@ -96,19 +114,8 @@ async def start_publisher():
 async def publish_loop():
     while True:
         try:
-            db = next(get_db())
-
-            unpublished = db.query(Article).filter(
-                Article.published == False
-            ).all()
-
-            for article in unpublished:
-                article.published = True
-                article.published_at = datetime.utcnow()
-
-            db.commit()
-            print(f"[AUTO-PUBLISH] Published {len(unpublished)} articles")
-
+            # No-op: highlighted_articles are already treated as "published"
+            pass
         except Exception as e:
             print("[AUTO-PUBLISH ERROR]", e)
 
