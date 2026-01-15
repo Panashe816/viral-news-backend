@@ -1,10 +1,12 @@
+# =========================
+# FILE: models.py
+# =========================
+from datetime import datetime
 from sqlalchemy import Column, Integer, Text, DateTime, Boolean
 from database import Base
-from datetime import datetime
-
 
 # =======================
-# MAIN ARTICLES TABLE
+# MAIN ARTICLES TABLE (legacy)
 # =======================
 class Article(Base):
     __tablename__ = "articles"
@@ -25,7 +27,6 @@ class Article(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # ✅ REQUIRED FOR AUTO-PUBLISH
     published = Column(Boolean, default=False)
     published_at = Column(DateTime, nullable=True)
 
@@ -47,8 +48,7 @@ class Headline(Base):
 
 
 # =======================
-# HIGHLIGHTED ARTICLES
-# (breaking / trending / top headlines)
+# HIGHLIGHTED ARTICLES (NEW FEED SOURCE)
 # =======================
 class HighlightedArticle(Base):
     __tablename__ = "highlighted_articles"
