@@ -1,8 +1,7 @@
 # =========================
 # FILE: main.py
 # =========================
-import time
-import re
+
 from fastapi import FastAPI, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -11,16 +10,23 @@ from database import engine, get_db
 import models
 from routers import articles
 
-# Create DB tables safely (won’t drop data)
+# =========================
+# DB INIT (safe, no drops)
+# =========================
 models.Base.metadata.create_all(bind=engine)
 
+# =========================
+# APP INIT
+# =========================
 app = FastAPI(
     title="Viral News API",
     description="API backend for Viral News (JSON only)",
-    version="2.1.0"
+    version="2.2.0",
 )
 
-# ✅ Add your site + GitHub Pages origin
+# =========================
+# CORS (frontend safe)
+# =========================
 origins = [
     "https://viralnewsalert.com",
     "https://www.viralnewsalert.com",
@@ -37,21 +43,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Router
+# =========================
+# ROUTERS
+# =========================
 app.include_router(articles.router)
 
-# =========================================================
-# HEALTH ENDPOINTS (UptimeRobot + Render health checks)
-# =========================================================
+# =========================
+# HEALTH CHECK (CRITICAL)
+# - Supports GET + HEAD
+# - Fixes UptimeRobot FREE
+# =========================
 @app.get("/health")
-def health():
+@app.head("/health")
+def health(response: Response):
+    response.status_code = 200
     return {"ok": True}
+
 
 @app.get("/healthz")
-def healthz():
+@app.head("/healthz")
+def healthz(response: Response):
+    response.status_code = 200
     return {"ok": True}
 
-# Canonical category order
+
+# =========================
+# ROOT
+# =========================
+@app.get("/")
+def read_root():
+    return {
+        "message": "Viral News API is running",
+        "endpoints": {
+            "homepage": "/homepage",
+            "articles": "/articles/",
+            "article_by_id": "/articles/{id}",
+            "categories": "/articles/categories/list",
+            "health": "/health",
+        },
+        "note": "Current architecture uses highlighted_articles as the ONLY feed source.",
+    }
+
+
+# =========================
+# CATEGORY NORMALIZATION
+# =========================
 CATEGORY_ORDER = [
     "breaking",
     "trending",
@@ -65,6 +101,7 @@ CATEGORY_ORDER = [
     "Entertainment",
 ]
 
+
 def normalize_category(raw: str) -> str:
     c = (raw or "").strip()
     low = c.lower()
@@ -73,7 +110,7 @@ def normalize_category(raw: str) -> str:
         return "breaking"
     if low in ("trending", "trending news"):
         return "trending"
-    if low in ("top headlines", "topheadlines", "top-headlines", "top headline", "top"):
+    if low in ("top headlines", "topheadlines", "top-headlines", "top"):
         return "top headlines"
 
     if low == "general news":
@@ -94,82 +131,34 @@ def normalize_category(raw: str) -> str:
     return "General News"
 
 
-# =========================================================
-# HTML STRIPPER (to reduce homepage payload size)
-# =========================================================
-_TAG_RE = re.compile(r"<[^>]+>")
-
-def clean_text(html: str) -> str:
-    s = (html or "").strip()
-    s = _TAG_RE.sub(" ", s)          # remove html tags
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-# =========================================================
-# FAST HOMEPAGE SERIALIZER (NO huge content)
-# =========================================================
-def serialize_home(a: models.HighlightedArticle):
+# =========================
+# SERIALIZER (FAST + SAFE)
+# =========================
+def serialize(a: models.HighlightedArticle):
     safe_pub = a.published_at or a.created_at
-
-    summary_txt = clean_text(a.summary)
-    if len(summary_txt) > 200:
-        summary_txt = summary_txt[:200].rstrip() + "…"
-
     return {
         "id": a.id,
         "headline_id": a.headline_id,
         "title": a.title,
-        "summary": summary_txt,  # ✅ clean short text
+        "summary": a.summary,
+        "content": a.content,
         "url": a.url,
         "source": a.source,
         "image_url": a.image_url,
         "category": normalize_category(a.category),
+        "meta_title": a.meta_title,
+        "meta_description": a.meta_description,
         "published_at": safe_pub.isoformat() if safe_pub else None,
         "created_at": a.created_at.isoformat() if a.created_at else None,
         "source_table": "highlighted_articles",
     }
 
 
-@app.get("/")
-def read_root():
-    return {
-        "message": "Viral News API is running",
-        "endpoints": {
-            "health": "/health",
-            "healthz": "/healthz",
-            "homepage": "/homepage",
-            "articles": "/articles/",
-            "article_by_id": "/articles/{id}",
-            "categories": "/articles/categories/list"
-        },
-        "note": "Current architecture uses highlighted_articles as the ONLY feed source."
-    }
-
-
-# =========================================================
-# HOMEPAGE ENDPOINT (FAST + CACHED)
-# - Limits results (no .all() huge)
-# - Removes article 'content' from payload
-# - In-memory TTL cache to speed up repeated calls
-# =========================================================
-_HOMEPAGE_CACHE = {"ts": 0.0, "data": None}
-_HOMEPAGE_TTL_SECONDS = 20  # 10–60 seconds is fine
-
+# =========================
+# HOMEPAGE ENDPOINT
+# =========================
 @app.get("/homepage")
-def homepage(response: Response, db: Session = Depends(get_db)):
-    # ✅ allow short caching (browser/proxy); helps repeat loads
-    response.headers["Cache-Control"] = "public, max-age=20, stale-while-revalidate=120"
-
-    # ✅ in-memory cache (huge speed win)
-    now = time.time()
-    cached = _HOMEPAGE_CACHE["data"]
-    if cached is not None and (now - _HOMEPAGE_CACHE["ts"] < _HOMEPAGE_TTL_SECONDS):
-        return cached
-
-    # ✅ limit query (avoid downloading your entire table)
-    LIMIT = 500  # lower to 300 if you want even lighter
-
+def homepage(db: Session = Depends(get_db)):
     items = (
         db.query(models.HighlightedArticle)
         .order_by(
@@ -177,11 +166,10 @@ def homepage(response: Response, db: Session = Depends(get_db)):
             models.HighlightedArticle.created_at.desc(),
             models.HighlightedArticle.id.desc(),
         )
-        .limit(LIMIT)
         .all()
     )
 
-    serialized = [serialize_home(a) for a in items]
+    serialized = [serialize(a) for a in items]
 
     grouped = {k: [] for k in CATEGORY_ORDER}
     for a in serialized:
@@ -191,14 +179,8 @@ def homepage(response: Response, db: Session = Depends(get_db)):
         else:
             grouped["General News"].append(a)
 
-    data = {
+    return {
         "order": CATEGORY_ORDER,
         "categories": grouped,
         "all": serialized,
-        "limit": LIMIT,
-        "cached_ttl": _HOMEPAGE_TTL_SECONDS,
     }
-
-    _HOMEPAGE_CACHE["ts"] = now
-    _HOMEPAGE_CACHE["data"] = data
-    return data
