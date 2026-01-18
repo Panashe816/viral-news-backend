@@ -2,6 +2,7 @@
 # FILE: main.py
 # =========================
 import time
+import re
 from fastapi import FastAPI, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -40,7 +41,7 @@ app.add_middleware(
 app.include_router(articles.router)
 
 # =========================================================
-# HEALTH ENDPOINTS (for UptimeRobot + Render health checks)
+# HEALTH ENDPOINTS (UptimeRobot + Render health checks)
 # =========================================================
 @app.get("/health")
 def health():
@@ -94,22 +95,36 @@ def normalize_category(raw: str) -> str:
 
 
 # =========================================================
-# SERIALIZERS
-# - serialize_home: for homepage (FAST, NO huge content)
+# HTML STRIPPER (to reduce homepage payload size)
+# =========================================================
+_TAG_RE = re.compile(r"<[^>]+>")
+
+def clean_text(html: str) -> str:
+    s = (html or "").strip()
+    s = _TAG_RE.sub(" ", s)          # remove html tags
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+# =========================================================
+# FAST HOMEPAGE SERIALIZER (NO huge content)
 # =========================================================
 def serialize_home(a: models.HighlightedArticle):
     safe_pub = a.published_at or a.created_at
+
+    summary_txt = clean_text(a.summary)
+    if len(summary_txt) > 200:
+        summary_txt = summary_txt[:200].rstrip() + "…"
+
     return {
         "id": a.id,
         "headline_id": a.headline_id,
         "title": a.title,
-        "summary": a.summary,
+        "summary": summary_txt,  # ✅ clean short text
         "url": a.url,
         "source": a.source,
         "image_url": a.image_url,
         "category": normalize_category(a.category),
-        "meta_title": a.meta_title,
-        "meta_description": a.meta_description,
         "published_at": safe_pub.isoformat() if safe_pub else None,
         "created_at": a.created_at.isoformat() if a.created_at else None,
         "source_table": "highlighted_articles",
@@ -122,6 +137,7 @@ def read_root():
         "message": "Viral News API is running",
         "endpoints": {
             "health": "/health",
+            "healthz": "/healthz",
             "homepage": "/homepage",
             "articles": "/articles/",
             "article_by_id": "/articles/{id}",
@@ -152,7 +168,7 @@ def homepage(response: Response, db: Session = Depends(get_db)):
         return cached
 
     # ✅ limit query (avoid downloading your entire table)
-    LIMIT = 500  # you can lower to 300 if you want lighter
+    LIMIT = 500  # lower to 300 if you want even lighter
 
     items = (
         db.query(models.HighlightedArticle)
