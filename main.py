@@ -1,7 +1,8 @@
 # =========================
 # FILE: main.py
 # =========================
-from fastapi import FastAPI, Depends
+import time
+from fastapi import FastAPI, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
@@ -18,13 +19,12 @@ app = FastAPI(
     version="2.1.0"
 )
 
-# ✅ Add your site + GitHub Pages origin (important if you host index.html on GitHub Pages)
+# ✅ Add your site + GitHub Pages origin
 origins = [
     "https://viralnewsalert.com",
     "https://www.viralnewsalert.com",
     "http://localhost:5500",
     "http://127.0.0.1:5500",
-    # If you use GitHub Pages, add it here (safe even if unused):
     "https://panasheganyani.github.io",
 ]
 
@@ -36,8 +36,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Router (now guaranteed to read from highlighted_articles)
+# ✅ Router
 app.include_router(articles.router)
+
+# =========================================================
+# HEALTH ENDPOINTS (for UptimeRobot + Render health checks)
+# =========================================================
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}
 
 # Canonical category order
 CATEGORY_ORDER = [
@@ -82,14 +93,17 @@ def normalize_category(raw: str) -> str:
     return "General News"
 
 
-def serialize(a: models.HighlightedArticle):
+# =========================================================
+# SERIALIZERS
+# - serialize_home: for homepage (FAST, NO huge content)
+# =========================================================
+def serialize_home(a: models.HighlightedArticle):
     safe_pub = a.published_at or a.created_at
     return {
         "id": a.id,
         "headline_id": a.headline_id,
         "title": a.title,
         "summary": a.summary,
-        "content": a.content,
         "url": a.url,
         "source": a.source,
         "image_url": a.image_url,
@@ -107,6 +121,7 @@ def read_root():
     return {
         "message": "Viral News API is running",
         "endpoints": {
+            "health": "/health",
             "homepage": "/homepage",
             "articles": "/articles/",
             "article_by_id": "/articles/{id}",
@@ -117,13 +132,28 @@ def read_root():
 
 
 # =========================================================
-# HOMEPAGE DATA ENDPOINT (THE ONE YOUR FRONTEND SHOULD USE)
-# - Uses ONLY highlighted_articles
-# - Returns grouped categories + flat list
-# - Everything is JSON-safe (dicts)
+# HOMEPAGE ENDPOINT (FAST + CACHED)
+# - Limits results (no .all() huge)
+# - Removes article 'content' from payload
+# - In-memory TTL cache to speed up repeated calls
 # =========================================================
+_HOMEPAGE_CACHE = {"ts": 0.0, "data": None}
+_HOMEPAGE_TTL_SECONDS = 20  # 10–60 seconds is fine
+
 @app.get("/homepage")
-def homepage(db: Session = Depends(get_db)):
+def homepage(response: Response, db: Session = Depends(get_db)):
+    # ✅ allow short caching (browser/proxy); helps repeat loads
+    response.headers["Cache-Control"] = "public, max-age=20, stale-while-revalidate=120"
+
+    # ✅ in-memory cache (huge speed win)
+    now = time.time()
+    cached = _HOMEPAGE_CACHE["data"]
+    if cached is not None and (now - _HOMEPAGE_CACHE["ts"] < _HOMEPAGE_TTL_SECONDS):
+        return cached
+
+    # ✅ limit query (avoid downloading your entire table)
+    LIMIT = 500  # you can lower to 300 if you want lighter
+
     items = (
         db.query(models.HighlightedArticle)
         .order_by(
@@ -131,23 +161,28 @@ def homepage(db: Session = Depends(get_db)):
             models.HighlightedArticle.created_at.desc(),
             models.HighlightedArticle.id.desc(),
         )
+        .limit(LIMIT)
         .all()
     )
 
-    # Prepare dicts first
-    serialized = [serialize(a) for a in items]
+    serialized = [serialize_home(a) for a in items]
 
-    # Group by normalized category
     grouped = {k: [] for k in CATEGORY_ORDER}
     for a in serialized:
         cat = a["category"]
         if cat in grouped:
             grouped[cat].append(a)
         else:
-            grouped.setdefault("General News", []).append(a)
+            grouped["General News"].append(a)
 
-    return {
+    data = {
         "order": CATEGORY_ORDER,
         "categories": grouped,
-        "all": serialized
+        "all": serialized,
+        "limit": LIMIT,
+        "cached_ttl": _HOMEPAGE_TTL_SECONDS,
     }
+
+    _HOMEPAGE_CACHE["ts"] = now
+    _HOMEPAGE_CACHE["data"] = data
+    return data
