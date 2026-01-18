@@ -4,6 +4,7 @@
 
 from fastapi import FastAPI, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.orm import Session
 
 from database import engine, get_db
@@ -21,11 +22,14 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Viral News API",
     description="API backend for Viral News (JSON only)",
-    version="2.2.0",
+    version="2.3.0",
 )
 
+# ✅ GZip compression (big speed boost for JSON)
+app.add_middleware(GZipMiddleware, minimum_size=800)
+
 # =========================
-# CORS (frontend safe)
+# CORS
 # =========================
 origins = [
     "https://viralnewsalert.com",
@@ -49,9 +53,7 @@ app.add_middleware(
 app.include_router(articles.router)
 
 # =========================
-# HEALTH CHECK (CRITICAL)
-# - Supports GET + HEAD
-# - Fixes UptimeRobot FREE
+# HEALTH CHECK (GET + HEAD)
 # =========================
 @app.get("/health")
 @app.head("/health")
@@ -59,13 +61,11 @@ def health(response: Response):
     response.status_code = 200
     return {"ok": True}
 
-
 @app.get("/healthz")
 @app.head("/healthz")
 def healthz(response: Response):
     response.status_code = 200
     return {"ok": True}
-
 
 # =========================
 # ROOT
@@ -84,7 +84,6 @@ def read_root():
         "note": "Current architecture uses highlighted_articles as the ONLY feed source.",
     }
 
-
 # =========================
 # CATEGORY NORMALIZATION
 # =========================
@@ -101,7 +100,6 @@ CATEGORY_ORDER = [
     "Entertainment",
 ]
 
-
 def normalize_category(raw: str) -> str:
     c = (raw or "").strip()
     low = c.lower()
@@ -110,7 +108,7 @@ def normalize_category(raw: str) -> str:
         return "breaking"
     if low in ("trending", "trending news"):
         return "trending"
-    if low in ("top headlines", "topheadlines", "top-headlines", "top"):
+    if low in ("top headlines", "topheadlines", "top-headlines", "top headline", "top"):
         return "top headlines"
 
     if low == "general news":
@@ -130,18 +128,19 @@ def normalize_category(raw: str) -> str:
 
     return "General News"
 
-
 # =========================
-# SERIALIZER (FAST + SAFE)
+# HOMEPAGE SERIALIZER (FAST)
+# IMPORTANT:
+# - NO "content" here (huge)
+# - homepage should be lightweight
 # =========================
-def serialize(a: models.HighlightedArticle):
+def serialize_home(a: models.HighlightedArticle):
     safe_pub = a.published_at or a.created_at
     return {
         "id": a.id,
         "headline_id": a.headline_id,
         "title": a.title,
         "summary": a.summary,
-        "content": a.content,
         "url": a.url,
         "source": a.source,
         "image_url": a.image_url,
@@ -153,12 +152,15 @@ def serialize(a: models.HighlightedArticle):
         "source_table": "highlighted_articles",
     }
 
-
 # =========================
-# HOMEPAGE ENDPOINT
+# HOMEPAGE ENDPOINT (FAST)
+# - Limits rows
+# - No heavy fields
 # =========================
 @app.get("/homepage")
 def homepage(db: Session = Depends(get_db)):
+    LIMIT = 500  # keep this reasonable
+
     items = (
         db.query(models.HighlightedArticle)
         .order_by(
@@ -166,10 +168,11 @@ def homepage(db: Session = Depends(get_db)):
             models.HighlightedArticle.created_at.desc(),
             models.HighlightedArticle.id.desc(),
         )
+        .limit(LIMIT)
         .all()
     )
 
-    serialized = [serialize(a) for a in items]
+    serialized = [serialize_home(a) for a in items]
 
     grouped = {k: [] for k in CATEGORY_ORDER}
     for a in serialized:
