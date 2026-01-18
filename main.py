@@ -2,6 +2,7 @@
 # FILE: main.py
 # =========================
 
+import time
 from fastapi import FastAPI, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -12,7 +13,7 @@ import models
 from routers import articles
 
 # =========================
-# DB INIT (safe, no drops)
+# DB INIT (safe)
 # =========================
 models.Base.metadata.create_all(bind=engine)
 
@@ -22,10 +23,10 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Viral News API",
     description="API backend for Viral News (JSON only)",
-    version="2.3.0",
+    version="2.4.0",
 )
 
-# ✅ GZip compression (big speed boost for JSON)
+# GZip compression (big win)
 app.add_middleware(GZipMiddleware, minimum_size=800)
 
 # =========================
@@ -53,7 +54,7 @@ app.add_middleware(
 app.include_router(articles.router)
 
 # =========================
-# HEALTH CHECK (GET + HEAD)
+# HEALTH CHECKS (GET + HEAD)
 # =========================
 @app.get("/health")
 @app.head("/health")
@@ -78,10 +79,8 @@ def read_root():
             "homepage": "/homepage",
             "articles": "/articles/",
             "article_by_id": "/articles/{id}",
-            "categories": "/articles/categories/list",
             "health": "/health",
         },
-        "note": "Current architecture uses highlighted_articles as the ONLY feed source.",
     }
 
 # =========================
@@ -101,38 +100,32 @@ CATEGORY_ORDER = [
 ]
 
 def normalize_category(raw: str) -> str:
-    c = (raw or "").strip()
-    low = c.lower()
-
-    if low in ("breaking", "breaking news", "breaking news (alt)"):
+    c = (raw or "").strip().lower()
+    if c in ("breaking", "breaking news", "breaking news (alt)"):
         return "breaking"
-    if low in ("trending", "trending news"):
+    if c in ("trending", "trending news"):
         return "trending"
-    if low in ("top headlines", "topheadlines", "top-headlines", "top headline", "top"):
+    if c in ("top headlines", "topheadlines", "top-headlines", "top"):
         return "top headlines"
-
-    if low == "general news":
+    if c == "general news":
         return "General News"
-    if low == "world news":
+    if c == "world news":
         return "World News"
-    if low == "politics":
+    if c == "politics":
         return "Politics"
-    if low in ("technology", "tech"):
+    if c in ("technology", "tech"):
         return "Technology"
-    if low == "sports":
+    if c == "sports":
         return "Sports"
-    if low in ("health & fitness", "health and fitness", "health", "fitness"):
+    if c in ("health", "fitness", "health & fitness", "health and fitness"):
         return "Health & Fitness"
-    if low == "entertainment":
+    if c == "entertainment":
         return "Entertainment"
-
     return "General News"
 
 # =========================
-# HOMEPAGE SERIALIZER (FAST)
-# IMPORTANT:
-# - NO "content" here (huge)
-# - homepage should be lightweight
+# FAST HOMEPAGE SERIALIZER
+# (NO content field)
 # =========================
 def serialize_home(a: models.HighlightedArticle):
     safe_pub = a.published_at or a.created_at
@@ -145,21 +138,35 @@ def serialize_home(a: models.HighlightedArticle):
         "source": a.source,
         "image_url": a.image_url,
         "category": normalize_category(a.category),
-        "meta_title": a.meta_title,
-        "meta_description": a.meta_description,
         "published_at": safe_pub.isoformat() if safe_pub else None,
         "created_at": a.created_at.isoformat() if a.created_at else None,
-        "source_table": "highlighted_articles",
     }
 
 # =========================
-# HOMEPAGE ENDPOINT (FAST)
-# - Limits rows
-# - No heavy fields
+# 🔥 SIMPLE IN-MEMORY CACHE
+# =========================
+HOMEPAGE_CACHE = {
+    "data": None,
+    "timestamp": 0.0,
+}
+
+CACHE_TTL_SECONDS = 30  # ✅ safe (30–60s recommended)
+
+# =========================
+# HOMEPAGE ENDPOINT (CACHED)
 # =========================
 @app.get("/homepage")
 def homepage(db: Session = Depends(get_db)):
-    LIMIT = 500  # keep this reasonable
+    now = time.time()
+
+    # Serve cached response if fresh
+    if (
+        HOMEPAGE_CACHE["data"] is not None
+        and now - HOMEPAGE_CACHE["timestamp"] < CACHE_TTL_SECONDS
+    ):
+        return HOMEPAGE_CACHE["data"]
+
+    LIMIT = 500
 
     items = (
         db.query(models.HighlightedArticle)
@@ -182,8 +189,14 @@ def homepage(db: Session = Depends(get_db)):
         else:
             grouped["General News"].append(a)
 
-    return {
+    payload = {
         "order": CATEGORY_ORDER,
         "categories": grouped,
         "all": serialized,
     }
+
+    # Save to cache
+    HOMEPAGE_CACHE["data"] = payload
+    HOMEPAGE_CACHE["timestamp"] = now
+
+    return payload
