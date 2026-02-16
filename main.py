@@ -148,30 +148,35 @@ def serialize_home(a: models.HighlightedArticle):
 HOMEPAGE_CACHE = {
     "data": None,
     "timestamp": 0.0,
-    "buckets": {},  # cache per (limit, offset)
+    "buckets": {},  # cache per (params)
 }
 
 CACHE_TTL_SECONDS = 30  # ✅ safe (30–60s recommended)
 
 # =========================
 # HOMEPAGE ENDPOINT (CACHED)
+# - categories: guaranteed N items per category (default 4)
+# - all: mixed feed for "More for you" (paged via offset for infinite scroll)
 # =========================
 @app.get("/homepage")
 def homepage(
     response: Response,
     db: Session = Depends(get_db),
-    limit: int = Query(default=30, ge=5, le=80),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=43, ge=5, le=80),               # how many items to return in "all" per page
+    offset: int = Query(default=0, ge=0),                      # for infinite scroll of "all"
+    per_category: int = Query(default=4, ge=1, le=10),         # ✅ guarantee items per category
+    pool_limit: int = Query(default=200, ge=80, le=800),       # internal pool to make category fill reliable (kept reasonable for speed)
 ):
     now = time.time()
-    cache_key = f"{limit}:{offset}"
+    cache_key = f"{limit}:{offset}:{per_category}:{pool_limit}"
 
-    # Serve cached response if fresh (per limit/offset)
+    # Serve cached response if fresh (per params)
     bucket = HOMEPAGE_CACHE["buckets"].get(cache_key)
     if bucket and (now - bucket["timestamp"] < CACHE_TTL_SECONDS):
         response.headers["Cache-Control"] = "public, max-age=30"
         return bucket["data"]
 
+    # Pull an internal pool (lightweight fields only) so each category can get enough
     items = (
         db.query(models.HighlightedArticle)
         .order_by(
@@ -179,8 +184,7 @@ def homepage(
             models.HighlightedArticle.created_at.desc(),
             models.HighlightedArticle.id.desc(),
         )
-        .offset(offset)
-        .limit(limit)
+        .limit(pool_limit)
         .all()
     )
 
@@ -194,14 +198,32 @@ def homepage(
         else:
             grouped["General News"].append(a)
 
+    # ✅ Guarantee N per category (if available)
+    trimmed_grouped = {k: v[:per_category] for k, v in grouped.items()}
+
+    # Build a mixed "More for you" feed from remaining pool (exclude category picks)
+    used_ids = set()
+    for v in trimmed_grouped.values():
+        for item in v:
+            used_ids.add(item["id"])
+
+    remaining = [a for a in serialized if a["id"] not in used_ids]
+
+    # Infinite scroll page for "More for you"
+    mixed_page = remaining[offset : offset + limit]
+
     # ✅ KEEP OLD JSON SHAPE so frontend doesn't break
     payload = {
         "order": CATEGORY_ORDER,
-        "categories": grouped,
-        "all": serialized,          # ✅ this is what your frontend likely expects
-        "count": len(serialized),   # extra fields are safe
+        "categories": trimmed_grouped,
+        "all": mixed_page,          # ✅ mixed feed page (load more by increasing offset)
+        "count": len(mixed_page),
         "limit": limit,
         "offset": offset,
+        "has_more": (offset + limit) < len(remaining),
+        "next_offset": offset + limit,
+        "per_category": per_category,
+        "pool_limit": pool_limit,
     }
 
     # Save to cache
