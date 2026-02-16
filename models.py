@@ -2,7 +2,7 @@
 # FILE: models.py
 # =========================
 from datetime import datetime
-from sqlalchemy import Column, Integer, Text, DateTime, Boolean
+from sqlalchemy import Column, Integer, Text, DateTime, Boolean, Index
 from database import Base
 
 # =======================
@@ -54,7 +54,7 @@ class HighlightedArticle(Base):
     __tablename__ = "highlighted_articles"
 
     id = Column(Integer, primary_key=True, index=True)
-    headline_id = Column(Integer, nullable=False)
+    headline_id = Column(Integer, nullable=False, index=True)
 
     title = Column(Text, nullable=False)
     summary = Column(Text, nullable=True)
@@ -64,10 +64,19 @@ class HighlightedArticle(Base):
     source = Column(Text, nullable=True)
     image_url = Column(Text, nullable=True)
 
-    category = Column(Text, nullable=False)
+    category = Column(Text, nullable=False, index=True)
 
     meta_title = Column(Text, nullable=True)
     meta_description = Column(Text, nullable=True)
 
-    published_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    published_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ✅ Composite index for your common ordering pattern
+Index(
+    "idx_highlighted_pub_created_id",
+    HighlightedArticle.published_at,
+    HighlightedArticle.created_at,
+    HighlightedArticle.id,
+)
