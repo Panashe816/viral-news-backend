@@ -148,7 +148,7 @@ def serialize_home(a: models.HighlightedArticle):
 HOMEPAGE_CACHE = {
     "data": None,
     "timestamp": 0.0,
-    "buckets": {},  # ✅ cache per (limit, offset)
+    "buckets": {},  # cache per (limit, offset)
 }
 
 CACHE_TTL_SECONDS = 30  # ✅ safe (30–60s recommended)
@@ -194,10 +194,12 @@ def homepage(
         else:
             grouped["General News"].append(a)
 
+    # ✅ KEEP OLD JSON SHAPE so frontend doesn't break
     payload = {
         "order": CATEGORY_ORDER,
         "categories": grouped,
-        "count": len(serialized),
+        "all": serialized,          # ✅ this is what your frontend likely expects
+        "count": len(serialized),   # extra fields are safe
         "limit": limit,
         "offset": offset,
     }
