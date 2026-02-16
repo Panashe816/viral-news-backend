@@ -3,7 +3,7 @@
 # =========================
 
 import time
-from fastapi import FastAPI, Depends, Response
+from fastapi import FastAPI, Depends, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.orm import Session
@@ -148,6 +148,7 @@ def serialize_home(a: models.HighlightedArticle):
 HOMEPAGE_CACHE = {
     "data": None,
     "timestamp": 0.0,
+    "buckets": {},  # ✅ cache per (limit, offset)
 }
 
 CACHE_TTL_SECONDS = 30  # ✅ safe (30–60s recommended)
@@ -156,17 +157,20 @@ CACHE_TTL_SECONDS = 30  # ✅ safe (30–60s recommended)
 # HOMEPAGE ENDPOINT (CACHED)
 # =========================
 @app.get("/homepage")
-def homepage(db: Session = Depends(get_db)):
+def homepage(
+    response: Response,
+    db: Session = Depends(get_db),
+    limit: int = Query(default=30, ge=5, le=80),
+    offset: int = Query(default=0, ge=0),
+):
     now = time.time()
+    cache_key = f"{limit}:{offset}"
 
-    # Serve cached response if fresh
-    if (
-        HOMEPAGE_CACHE["data"] is not None
-        and now - HOMEPAGE_CACHE["timestamp"] < CACHE_TTL_SECONDS
-    ):
-        return HOMEPAGE_CACHE["data"]
-
-    LIMIT = 500
+    # Serve cached response if fresh (per limit/offset)
+    bucket = HOMEPAGE_CACHE["buckets"].get(cache_key)
+    if bucket and (now - bucket["timestamp"] < CACHE_TTL_SECONDS):
+        response.headers["Cache-Control"] = "public, max-age=30"
+        return bucket["data"]
 
     items = (
         db.query(models.HighlightedArticle)
@@ -175,7 +179,8 @@ def homepage(db: Session = Depends(get_db)):
             models.HighlightedArticle.created_at.desc(),
             models.HighlightedArticle.id.desc(),
         )
-        .limit(LIMIT)
+        .offset(offset)
+        .limit(limit)
         .all()
     )
 
@@ -192,11 +197,15 @@ def homepage(db: Session = Depends(get_db)):
     payload = {
         "order": CATEGORY_ORDER,
         "categories": grouped,
-        "all": serialized,
+        "count": len(serialized),
+        "limit": limit,
+        "offset": offset,
     }
 
     # Save to cache
+    HOMEPAGE_CACHE["buckets"][cache_key] = {"data": payload, "timestamp": now}
     HOMEPAGE_CACHE["data"] = payload
     HOMEPAGE_CACHE["timestamp"] = now
 
+    response.headers["Cache-Control"] = "public, max-age=30"
     return payload
