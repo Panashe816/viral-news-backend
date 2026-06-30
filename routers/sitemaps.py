@@ -4,7 +4,7 @@ from xml.sax.saxutils import escape
 
 import models
 from database import get_db
-
+from datetime import datetime, timedelta, timezone
 router = APIRouter()
 
 SITE_URL = "https://viralnewsalert.com"
