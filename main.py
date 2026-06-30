@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from database import engine, get_db
 import models
 from routers import articles
-
+from routers import sitemaps
 # =========================
 # DB INIT (safe)
 # =========================
@@ -54,6 +54,7 @@ app.add_middleware(
 # ROUTERS
 # =========================
 app.include_router(articles.router)
+app.include_router(sitemaps.router)
 
 # =========================
 # HEALTH CHECKS (GET + HEAD)
