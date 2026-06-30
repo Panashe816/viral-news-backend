@@ -8,6 +8,9 @@ from datetime import datetime, timedelta, timezone
 router = APIRouter()
 
 SITE_URL = "https://viralnewsalert.com"
+PUBLICATION_NAME = "Viral News"
+LANGUAGE = "en"
+NEWS_LOOKBACK_HOURS = 48
 
 @router.get("/sitemap-articles.xml")
 def sitemap_articles(db: Session = Depends(get_db)):
