@@ -111,6 +111,7 @@ def list_articles(
         )
         filtered = [serialize_highlighted(a) for a in items if normalize_category(a.category) == want]
         return filtered
+        print("FILTERED ITEMS:", len(filtered))
 
     items = (
         q.order_by(
@@ -122,6 +123,7 @@ def list_articles(
         .limit(limit)
         .all()
     )
+    print("TOTAL ITEMS FROM DB:", len(items))
     return [serialize_highlighted(a) for a in items]
 
 
